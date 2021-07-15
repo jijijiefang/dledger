@@ -69,7 +69,7 @@ public interface MmapFile {
     /**
      * Appends a raw message data represents by a byte array to the current {@code MappedFile},
      * starting at the given offset in the array.
-     *
+     * 将字节数组表示的原始消息数据附加到当前MappedFile ，从数组中的给定偏移量开始。
      * @param data the byte array to append
      * @param offset the offset within the array of the first byte to be read
      * @param length the number of bytes to be read from the given array

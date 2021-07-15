@@ -16,6 +16,9 @@
 
 package io.openmessaging.storage.dledger.protocol;
 
+/**
+ * 追加日志条目响应
+ */
 public class AppendEntryResponse extends RequestOrResponse {
 
     private long index = -1;

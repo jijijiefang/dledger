@@ -19,30 +19,69 @@ package io.openmessaging.storage.dledger.store;
 import io.openmessaging.storage.dledger.MemberState;
 import io.openmessaging.storage.dledger.entry.DLedgerEntry;
 
+/**
+ * 存储抽象类
+ */
 public abstract class DLedgerStore {
 
     public MemberState getMemberState() {
         return null;
     }
 
+    /**
+     * 向主节点追加日志(数据)
+     * @param entry 日志条目
+     * @return 日志条目
+     */
     public abstract DLedgerEntry appendAsLeader(DLedgerEntry entry);
 
+    /**
+     * 从节点追加日志
+     * @param entry 日志条目
+     * @param leaderTerm 投票轮次
+     * @param leaderId Leader ID
+     * @return 日志条目
+     */
     public abstract DLedgerEntry appendAsFollower(DLedgerEntry entry, long leaderTerm, String leaderId);
 
+    /**
+     * 根据日志索引查找日志
+     * @param index 索引
+     * @return 日志条目
+     */
     public abstract DLedgerEntry get(Long index);
 
+    /**
+     * 获取已提交的下标
+     * @return 索引
+     */
     public abstract long getCommittedIndex();
 
     public void updateCommittedIndex(long term, long committedIndex) {
 
     }
 
+    /**
+     * 获取Leader当前最大的投票轮次
+     * @return 投票轮次
+     */
     public abstract long getLedgerEndTerm();
 
+    /**
+     * 获取Leader下一条日志写入的索引
+     * @return 索引
+     */
     public abstract long getLedgerEndIndex();
 
+    /**
+     * 获取Leader第一条消息的下标
+     * @return 索引
+     */
     public abstract long getLedgerBeginIndex();
 
+    /**
+     * 更新写入索引和选举轮次
+     */
     protected void updateLedgerEndIndexAndTerm() {
         if (getMemberState() != null) {
             getMemberState().updateLedgerIndexAndTerm(getLedgerEndIndex(), getLedgerEndTerm());

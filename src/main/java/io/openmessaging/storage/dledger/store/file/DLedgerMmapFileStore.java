@@ -23,18 +23,22 @@ import io.openmessaging.storage.dledger.entry.DLedgerEntry;
 import io.openmessaging.storage.dledger.entry.DLedgerEntryCoder;
 import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
 import io.openmessaging.storage.dledger.store.DLedgerStore;
+import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import io.openmessaging.storage.dledger.utils.IOUtils;
 import io.openmessaging.storage.dledger.utils.PreConditions;
-import io.openmessaging.storage.dledger.utils.DLedgerUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+/**
+ * DLedger基于文件内存映射机制的存储实现
+ */
 public class DLedgerMmapFileStore extends DLedgerStore {
 
     public static final String CHECK_POINT_FILE = "checkpoint";
@@ -46,24 +50,38 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerMmapFileStore.class);
     public List<AppendHook> appendHooks = new ArrayList<>();
+    //日志的起始索引，默认为 -1
     private long ledgerBeginIndex = -1;
+    //最后一条日志的索引
     private long ledgerEndIndex = -1;
+    //已提交的日志索引
     private long committedIndex = -1;
     private long committedPos = -1;
+    //当前最大的投票轮次
     private long ledgerEndTerm;
+    //配置信息
     private DLedgerConfig dLedgerConfig;
+    //状态机
     private MemberState memberState;
+    //日志文件(数据文件)的内存映射Queue
     private MmapFileList dataFileList;
+    //索引文件的内存映射文件集合
     private MmapFileList indexFileList;
+    //本地线程变量，用来缓存索引ByteBuffer
     private ThreadLocal<ByteBuffer> localEntryBuffer;
+    //本地线程变量，用来缓存数据索引ByteBuffe
     private ThreadLocal<ByteBuffer> localIndexBuffer;
+    //数据文件刷盘线程
     private FlushDataService flushDataService;
+    //清除过期日志文件线程
     private CleanSpaceService cleanSpaceService;
+    //磁盘是否已满
     private boolean isDiskFull = false;
-
+    //上一次检测点
     private long lastCheckPointTimeMs = System.currentTimeMillis();
-
+    //是否已经加载，主要用来避免重复加载(初始化)日志文件
     private AtomicBoolean hasLoaded = new AtomicBoolean(false);
+    //是否已恢复
     private AtomicBoolean hasRecovered = new AtomicBoolean(false);
 
     public DLedgerMmapFileStore(DLedgerConfig dLedgerConfig, MemberState memberState) {
@@ -319,9 +337,16 @@ public class DLedgerMmapFileStore extends DLedgerStore {
 
     }
 
+    /**
+     * 作为Leader追加日志
+     * @param entry 日志条目
+     * @return DLedgerEntry
+     */
     @Override
     public DLedgerEntry appendAsLeader(DLedgerEntry entry) {
+        //当前节点的状态是否是Leader，如果不是，则抛出异常
         PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER);
+        //当前磁盘是否已满，其判断依据是DLedger的根目录或数据文件目录的使用率超过了允许使用的最大值，默认值为85%
         PreConditions.check(!isDiskFull, DLedgerResponseCode.DISK_FULL);
         ByteBuffer dataBuffer = localEntryBuffer.get();
         ByteBuffer indexBuffer = localIndexBuffer.get();
@@ -342,10 +367,12 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             for (AppendHook writeHook : appendHooks) {
                 writeHook.doHook(entry, dataBuffer.slice(), DLedgerEntry.BODY_OFFSET);
             }
+            //追加日志至存储
             long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
             PreConditions.check(dataPos != -1, DLedgerResponseCode.DISK_ERROR, null);
             PreConditions.check(dataPos == prePos, DLedgerResponseCode.DISK_ERROR, null);
             DLedgerEntryCoder.encodeIndex(dataPos, entrySize, CURRENT_MAGIC, nextIndex, memberState.currTerm(), indexBuffer);
+            //追加索引至索引文件
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
             if (logger.isDebugEnabled()) {
@@ -361,6 +388,13 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * 删除日志条目
+     * @param entry 日志条目
+     * @param leaderTerm Leader选举轮次
+     * @param leaderId Leader ID
+     * @return
+     */
     @Override
     public long truncate(DLedgerEntry entry, long leaderTerm, String leaderId) {
         PreConditions.check(memberState.isFollower(), DLedgerResponseCode.NOT_FOLLOWER, null);
@@ -374,11 +408,13 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             PreConditions.check(leaderId.equals(memberState.getLeaderId()), DLedgerResponseCode.INCONSISTENT_LEADER, "leaderId %s != %s", leaderId, memberState.getLeaderId());
             boolean existedEntry;
             try {
+                //根据日志条目索引查找，是否相等
                 DLedgerEntry tmp = get(entry.getIndex());
                 existedEntry = entry.equals(tmp);
             } catch (Throwable ignored) {
                 existedEntry = false;
             }
+
             long truncatePos = existedEntry ? entry.getPos() + entry.getSize() : entry.getPos();
             if (truncatePos != dataFileList.getMaxWrotePosition()) {
                 logger.warn("[TRUNCATE]leaderId={} index={} truncatePos={} != maxPos={}, this is usually happened on the old leader", leaderId, entry.getIndex(), truncatePos, dataFileList.getMaxWrotePosition());
@@ -388,6 +424,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
                 logger.warn("[TRUNCATE] rebuild for data wrotePos: {} != truncatePos: {}", dataFileList.getMaxWrotePosition(), truncatePos);
                 PreConditions.check(dataFileList.rebuildWithPos(truncatePos), DLedgerResponseCode.DISK_ERROR, "rebuild data truncatePos=%d", truncatePos);
             }
+            //修改刷盘指针
             reviseDataFileListFlushedWhere(truncatePos);
             if (!existedEntry) {
                 long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
@@ -444,6 +481,13 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return mappedFileList.getFlushedWhere();
     }
 
+    /**
+     * 从节点追加日志至存储
+     * @param entry 日志条目
+     * @param leaderTerm 投票轮次
+     * @param leaderId Leader ID
+     * @return DLedgerEntry
+     */
     @Override
     public DLedgerEntry appendAsFollower(DLedgerEntry entry, long leaderTerm, String leaderId) {
         PreConditions.check(memberState.isFollower(), DLedgerResponseCode.NOT_FOLLOWER, "role=%s", memberState.getRole());
@@ -458,9 +502,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             PreConditions.check(nextIndex == entry.getIndex(), DLedgerResponseCode.INCONSISTENT_INDEX, null);
             PreConditions.check(leaderTerm == memberState.currTerm(), DLedgerResponseCode.INCONSISTENT_TERM, null);
             PreConditions.check(leaderId.equals(memberState.getLeaderId()), DLedgerResponseCode.INCONSISTENT_LEADER, null);
+            //追加日志条目至文件映射内存
             long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
             PreConditions.check(dataPos == entry.getPos(), DLedgerResponseCode.DISK_ERROR, "%d != %d", dataPos, entry.getPos());
             DLedgerEntryCoder.encodeIndex(dataPos, entrySize, entry.getMagic(), entry.getIndex(), entry.getTerm(), indexBuffer);
+            //追加日志条目索引至索引文件映射内存
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
             PreConditions.check(indexPos == entry.getIndex() * INDEX_UNIT_SIZE, DLedgerResponseCode.DISK_ERROR, null);
             ledgerEndTerm = entry.getTerm();
@@ -468,6 +514,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             if (ledgerBeginIndex == -1) {
                 ledgerBeginIndex = ledgerEndIndex;
             }
+            //更新写入索引和选举轮次
             updateLedgerEndIndexAndTerm();
             return entry;
         }
@@ -536,6 +583,11 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return committedIndex;
     }
 
+    /**
+     * 更新提交索引
+     * @param term 投票周期
+     * @param newCommittedIndex 新的提交索引
+     */
     public void updateCommittedIndex(long term, long newCommittedIndex) {
         if (newCommittedIndex == -1
             || ledgerEndIndex == -1

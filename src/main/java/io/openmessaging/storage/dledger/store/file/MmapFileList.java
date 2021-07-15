@@ -17,18 +17,14 @@
 package io.openmessaging.storage.dledger.store.file;
 
 import io.openmessaging.storage.dledger.utils.DLedgerUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class MmapFileList {
     public static final int MIN_BLANK_LEN = 8;
@@ -94,6 +90,10 @@ public class MmapFileList {
         return this.mappedFiles.toArray();
     }
 
+    /**
+     * 从偏移量开始删除
+     * @param offset 偏移量
+     */
     public void truncateOffset(long offset) {
         Object[] mfs = this.copyMappedFiles();
         if (mfs == null) {
@@ -178,6 +178,13 @@ public class MmapFileList {
         return append(data, 0, data.length);
     }
 
+    /**
+     * 追加日志
+     * @param data 数据
+     * @param pos 位置
+     * @param len 长度
+     * @return
+     */
     public long append(byte[] data, int pos, int len) {
         return append(data, pos, len, true);
     }
@@ -226,12 +233,24 @@ public class MmapFileList {
 
     }
 
+    /**
+     * 追加日志
+     * @param data 数据
+     * @param pos 位置
+     * @param len 长度
+     * @param useBlank 使用分隔符
+     * @return 添加消息后偏移量
+     */
     public long append(byte[] data, int pos, int len, boolean useBlank) {
+        //预处理追加日志，添加分隔符
         if (preAppend(len, useBlank) == -1) {
             return -1;
         }
+        //获取最新的内存映射日志文件
         MmapFile mappedFile = getLastMappedFile();
+        //返回最新的偏移量
         long currPosition = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
+        //追加日志至文件
         if (!mappedFile.appendMessage(data, pos, len)) {
             logger.error("Append error for {}", storePath);
             return -1;

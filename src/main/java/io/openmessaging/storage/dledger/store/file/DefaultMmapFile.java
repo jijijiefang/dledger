@@ -17,6 +17,9 @@
 package io.openmessaging.storage.dledger.store.file;
 
 import io.openmessaging.storage.dledger.utils.DLedgerUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -30,8 +33,6 @@ import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     public static final int OS_PAGE_SIZE = 1024 * 4;
@@ -172,7 +173,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
 
     /**
      * Content of data from offset to offset + length will be wrote to file.
-     *
+     * 数据内容写入文件映射内存
      * @param offset The offset of the subarray to be used.
      * @param length The length of the subarray to be used.
      */

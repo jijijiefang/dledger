@@ -18,43 +18,26 @@ package io.openmessaging.storage.dledger;
 
 import io.openmessaging.storage.dledger.entry.DLedgerEntry;
 import io.openmessaging.storage.dledger.exception.DLedgerException;
-import io.openmessaging.storage.dledger.protocol.AppendEntryRequest;
-import io.openmessaging.storage.dledger.protocol.AppendEntryResponse;
-import io.openmessaging.storage.dledger.protocol.BatchAppendEntryRequest;
-import io.openmessaging.storage.dledger.protocol.DLedgerProtocolHander;
-import io.openmessaging.storage.dledger.protocol.DLedgerResponseCode;
-import io.openmessaging.storage.dledger.protocol.GetEntriesRequest;
-import io.openmessaging.storage.dledger.protocol.GetEntriesResponse;
-import io.openmessaging.storage.dledger.protocol.HeartBeatRequest;
-import io.openmessaging.storage.dledger.protocol.HeartBeatResponse;
-import io.openmessaging.storage.dledger.protocol.LeadershipTransferRequest;
-import io.openmessaging.storage.dledger.protocol.LeadershipTransferResponse;
-import io.openmessaging.storage.dledger.protocol.MetadataRequest;
-import io.openmessaging.storage.dledger.protocol.MetadataResponse;
-import io.openmessaging.storage.dledger.protocol.PullEntriesRequest;
-import io.openmessaging.storage.dledger.protocol.PullEntriesResponse;
-import io.openmessaging.storage.dledger.protocol.PushEntryRequest;
-import io.openmessaging.storage.dledger.protocol.PushEntryResponse;
-import io.openmessaging.storage.dledger.protocol.VoteRequest;
-import io.openmessaging.storage.dledger.protocol.VoteResponse;
+import io.openmessaging.storage.dledger.protocol.*;
 import io.openmessaging.storage.dledger.store.DLedgerMemoryStore;
 import io.openmessaging.storage.dledger.store.DLedgerStore;
 import io.openmessaging.storage.dledger.store.file.DLedgerMmapFileStore;
 import io.openmessaging.storage.dledger.utils.DLedgerUtils;
 import io.openmessaging.storage.dledger.utils.PreConditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.CompletableFuture;
 
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+/**
+ * DLedger的Leader端或Follower端
+ */
 public class DLedgerServer implements DLedgerProtocolHander {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerServer.class);
@@ -84,7 +67,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
         });
     }
 
-
+    /**
+     * 启动
+     */
     public void startup() {
         this.dLedgerStore.startup();
         this.dLedgerRpcService.startup();
@@ -113,6 +98,12 @@ public class DLedgerServer implements DLedgerProtocolHander {
         return memberState;
     }
 
+    /**
+     * 接受心跳业务处理
+     * @param request 心跳请求
+     * @return CompletableFuture
+     * @throws Exception 异常
+     */
     @Override public CompletableFuture<HeartBeatResponse> handleHeartBeat(HeartBeatRequest request) throws Exception {
         try {
 
@@ -129,6 +120,12 @@ public class DLedgerServer implements DLedgerProtocolHander {
         }
     }
 
+    /**
+     * 处理远端发来的投票请求
+     * @param request 投票请求
+     * @return CompletableFuture
+     * @throws Exception 异常
+     */
     @Override public CompletableFuture<VoteResponse> handleVote(VoteRequest request) throws Exception {
         try {
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
@@ -149,19 +146,23 @@ public class DLedgerServer implements DLedgerProtocolHander {
      * 1.append the entry to local store
      * 2.submit the future to entry pusher and wait the quorum ack
      * 3.if the pending requests are full, then reject it immediately
-     *
-     * @param request
-     * @return
-     * @throws IOException
+     * 处理追加请求： 1. 将条目追加到本地存储 2. 将未来提交到条目推送器并等待仲裁确认 3. 如果待处理的请求已满，则立即拒绝它
+     * @param request 请求
+     * @return CompletableFuture
+     * @throws IOException IO异常
      */
     @Override
     public CompletableFuture<AppendEntryResponse> handleAppend(AppendEntryRequest request) throws IOException {
         try {
+            //请求的节点不是当前的处理节点
             PreConditions.check(memberState.getSelfId().equals(request.getRemoteId()), DLedgerResponseCode.UNKNOWN_MEMBER, "%s != %s", request.getRemoteId(), memberState.getSelfId());
+            //请求的集群不在当前所属集群
             PreConditions.check(memberState.getGroup().equals(request.getGroup()), DLedgerResponseCode.UNKNOWN_GROUP, "%s != %s", request.getGroup(), memberState.getGroup());
+            //如果当前节点不是主节点，则抛出异常
             PreConditions.check(memberState.isLeader(), DLedgerResponseCode.NOT_LEADER);
             PreConditions.check(memberState.getTransferee() == null, DLedgerResponseCode.LEADER_TRANSFERRING);
             long currTerm = memberState.currTerm();
+            //如果预处理队列已经满了，则拒绝客户端请求
             if (dLedgerEntryPusher.isPendingFull(currTerm)) {
                 AppendEntryResponse appendEntryResponse = new AppendEntryResponse();
                 appendEntryResponse.setGroup(memberState.getGroup());
@@ -170,6 +171,7 @@ public class DLedgerServer implements DLedgerProtocolHander {
                 appendEntryResponse.setLeaderId(memberState.getSelfId());
                 return AppendFuture.newCompletedFuture(-1, appendEntryResponse);
             } else {
+                //批量追加日志请求
                 if (request instanceof BatchAppendEntryRequest) {
                     BatchAppendEntryRequest batchRequest = (BatchAppendEntryRequest) request;
                     if (batchRequest.getBatchMsgs() != null && batchRequest.getBatchMsgs().size() != 0) {
@@ -182,10 +184,12 @@ public class DLedgerServer implements DLedgerProtocolHander {
                         while (iterator.hasNext()) {
                             DLedgerEntry dLedgerEntry = new DLedgerEntry();
                             dLedgerEntry.setBody(iterator.next());
+                            //DLedger分别实现了基于内存、基于文件的存储实现
+                            //追加日志条目至文件
                             resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
                             positions[index++] = resEntry.getPos();
                         }
-                        // only wait last entry ack is ok
+                        // only wait last entry ack is ok 等待最后一个条目的ACK
                         BatchAppendFuture<AppendEntryResponse> batchAppendFuture =
                                 (BatchAppendFuture<AppendEntryResponse>) dLedgerEntryPusher.waitAck(resEntry, true);
                         batchAppendFuture.setPositions(positions);
@@ -196,7 +200,9 @@ public class DLedgerServer implements DLedgerProtocolHander {
                 } else {
                     DLedgerEntry dLedgerEntry = new DLedgerEntry();
                     dLedgerEntry.setBody(request.getBody());
+                    //请求封装成DledgerEntry，则调用dLedgerStore 方法追加日志
                     DLedgerEntry resEntry = dLedgerStore.appendAsLeader(dLedgerEntry);
+                    //同步等待副本节点的复制响应
                     return dLedgerEntryPusher.waitAck(resEntry, false);
                 }
             }

@@ -16,8 +16,12 @@
 
 package io.openmessaging.storage.dledger.protocol;
 
+/**
+ * 追加日志条目请求
+ */
 public class AppendEntryRequest extends RequestOrResponse {
 
+    //待发送的数据
     private byte[] body;
 
     public byte[] getBody() {

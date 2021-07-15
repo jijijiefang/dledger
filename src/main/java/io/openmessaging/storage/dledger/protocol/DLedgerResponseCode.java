@@ -22,6 +22,9 @@ import java.util.Map;
 public enum DLedgerResponseCode {
 
     UNKNOWN(-1, ""),
+    /**
+     * 心跳包成功响应
+     */
     SUCCESS(200, ""),
     TIMEOUT(300, ""),
     METADATA_ERROR(301, ""),
@@ -30,12 +33,18 @@ public enum DLedgerResponseCode {
     UNKNOWN_GROUP(400, ""),
     UNKNOWN_MEMBER(401, ""),
     UNEXPECTED_MEMBER(402, ""),
+    /**
+     * 主节点的投票term小于从节点的投票轮次
+     */
     EXPIRED_TERM(403, ""),
     NOT_LEADER(404, ""),
     NOT_FOLLOWER(405, ""),
     INCONSISTENT_STATE(406, ""),
     INCONSISTENT_TERM(407, ""),
     INCONSISTENT_INDEX(408, ""),
+    /**
+     * 从节点已经有了新的主节点
+     */
     INCONSISTENT_LEADER(409, ""),
     INDEX_OUT_OF_RANGE(410, ""),
     UNEXPECTED_ARGUMENT(411, ""),
@@ -43,6 +52,9 @@ public enum DLedgerResponseCode {
     REPEATED_PUSH(413, ""),
     DISK_ERROR(414, ""),
     DISK_FULL(415, ""),
+    /**
+     * 从节点未准备好
+     */
     TERM_NOT_READY(416, ""),
     FALL_BEHIND_TOO_MUCH(417, ""),
     TAKE_LEADERSHIP_FAILED(418, ""),
