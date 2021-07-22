@@ -95,6 +95,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         cleanSpaceService = new CleanSpaceService("DLedgerCleanSpaceService", logger);
     }
 
+    /**
+     * 文件内存映射存储实现启动
+     */
     public void startup() {
         load();
         recover();
@@ -118,11 +121,17 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         return dataFileList.getFlushedWhere();
     }
 
+    /**
+     * 刷写日志条目文件和索引文件
+     */
     public void flush() {
         this.dataFileList.flush(0);
         this.indexFileList.flush(0);
     }
 
+    /**
+     * 加载日志条目文件和索引文件
+     */
     public void load() {
         if (!hasLoaded.compareAndSet(false, true)) {
             return;
@@ -350,6 +359,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         PreConditions.check(!isDiskFull, DLedgerResponseCode.DISK_FULL);
         ByteBuffer dataBuffer = localEntryBuffer.get();
         ByteBuffer indexBuffer = localIndexBuffer.get();
+        //日志条目放入缓冲区
         DLedgerEntryCoder.encode(entry, dataBuffer);
         int entrySize = dataBuffer.remaining();
         synchronized (memberState) {
@@ -359,6 +369,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             entry.setIndex(nextIndex);
             entry.setTerm(memberState.currTerm());
             entry.setMagic(CURRENT_MAGIC);
+            //日志条目索引缓冲区
             DLedgerEntryCoder.setIndexTerm(dataBuffer, nextIndex, memberState.currTerm(), CURRENT_MAGIC);
             long prePos = dataFileList.preAppend(dataBuffer.remaining());
             entry.setPos(prePos);
@@ -371,6 +382,7 @@ public class DLedgerMmapFileStore extends DLedgerStore {
             long dataPos = dataFileList.append(dataBuffer.array(), 0, dataBuffer.remaining());
             PreConditions.check(dataPos != -1, DLedgerResponseCode.DISK_ERROR, null);
             PreConditions.check(dataPos == prePos, DLedgerResponseCode.DISK_ERROR, null);
+            //索引信息放入缓冲区
             DLedgerEntryCoder.encodeIndex(dataPos, entrySize, CURRENT_MAGIC, nextIndex, memberState.currTerm(), indexBuffer);
             //追加索引至索引文件
             long indexPos = indexFileList.append(indexBuffer.array(), 0, indexBuffer.remaining(), false);
@@ -648,6 +660,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.flushDataService.shutdown();
     }
 
+    /**
+     * 刷盘线程
+     */
     class FlushDataService extends ShutdownAbleThread {
 
         public FlushDataService(String name, Logger logger) {
@@ -657,12 +672,15 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         @Override public void doWork() {
             try {
                 long start = System.currentTimeMillis();
+                //日志文件刷盘
                 DLedgerMmapFileStore.this.dataFileList.flush(0);
+                //索引文件刷盘
                 DLedgerMmapFileStore.this.indexFileList.flush(0);
                 if (DLedgerUtils.elapsed(start) > 500) {
                     logger.info("Flush data cost={} ms", DLedgerUtils.elapsed(start));
                 }
 
+                //每隔3S持久化追加日志索引和提交日志索引至文件
                 if (DLedgerUtils.elapsed(lastCheckPointTimeMs) > dLedgerConfig.getCheckPointInterval()) {
                     persistCheckPoint();
                     lastCheckPointTimeMs = System.currentTimeMillis();
@@ -676,6 +694,9 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         }
     }
 
+    /**
+     * 清除过期日志文件线程
+     */
     class CleanSpaceService extends ShutdownAbleThread {
 
         double storeBaseRatio = DLedgerUtils.getDiskPartitionSpaceUsedPercent(dLedgerConfig.getStoreBaseDir());

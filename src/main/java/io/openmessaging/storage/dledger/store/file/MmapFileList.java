@@ -26,6 +26,9 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+/**
+ * 文件内存映射集合
+ */
 public class MmapFileList {
     public static final int MIN_BLANK_LEN = 8;
     public static final int BLANK_MAGIC_CODE = -1;
@@ -299,6 +302,10 @@ public class MmapFileList {
         }
     }
 
+    /**
+     * 加载日志条目索引文件
+     * @return boolean
+     */
     public boolean load() {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
@@ -515,6 +522,11 @@ public class MmapFileList {
         return deleteCount;
     }
 
+    /**
+     * 刷写日志条目文件
+     * @param flushLeastPages 0
+     * @return 结果
+     */
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
         MmapFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
@@ -543,7 +555,7 @@ public class MmapFileList {
 
     /**
      * Finds a mapped file by offset.
-     *
+     * 按偏移量查找映射文件
      * @param offset Offset.
      * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.
      * @return Mapped file or null (when not found and returnFirstOnNotFound is <code>false</code>).

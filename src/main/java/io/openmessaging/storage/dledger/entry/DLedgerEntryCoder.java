@@ -20,29 +20,58 @@ import java.nio.ByteBuffer;
 
 public class DLedgerEntryCoder {
 
+    /**
+     * 编码
+     * @param entry 日志条目
+     * @param byteBuffer 缓冲区
+     */
     public static void encode(DLedgerEntry entry, ByteBuffer byteBuffer) {
         byteBuffer.clear();
         int size = entry.computSizeInBytes();
         //always put magic on the first position
+        //魔数，4 字节
         byteBuffer.putInt(entry.getMagic());
+        //条目总长度，包含Header(协议头) + 消息体，占4 字节
         byteBuffer.putInt(size);
+        //当前条目的index，占8 字节
         byteBuffer.putLong(entry.getIndex());
+        //当前条目所属的投票轮次，占8 字节
         byteBuffer.putLong(entry.getTerm());
+        //该条目的物理偏移量，类似于commitlog 文件的物理偏移量，占8 字节
         byteBuffer.putLong(entry.getPos());
+        //保留字段，当前版本未使用，占4 字节
         byteBuffer.putInt(entry.getChannel());
+        //当前版本未使用，占4 字节
         byteBuffer.putInt(entry.getChainCrc());
+        //body 的CRC 校验和，用来区分数据是否损坏，占4 字节。
         byteBuffer.putInt(entry.getBodyCrc());
+        //用来存储body 的长度，占4 个字节。
         byteBuffer.putInt(entry.getBody().length);
+        //具体消息的内容。
         byteBuffer.put(entry.getBody());
         byteBuffer.flip();
     }
 
+    /**
+     * 日志索引编码
+     * @param pos 日志条目在文件的偏移量
+     * @param size 条目大小
+     * @param magic 魔数
+     * @param index 索引
+     * @param term 投票轮次
+     * @param byteBuffer 缓冲区
+     */
     public static void encodeIndex(long pos, int size, int magic, long index, long term, ByteBuffer byteBuffer) {
         byteBuffer.clear();
+        //魔数，4 字节
         byteBuffer.putInt(magic);
+        //日志条目在文件的偏移量，8字节
         byteBuffer.putLong(pos);
+        //条目大小,4字节
         byteBuffer.putInt(size);
+        //日志条目索引，8字节
         byteBuffer.putLong(index);
+        //投票轮次，8字节
         byteBuffer.putLong(term);
         byteBuffer.flip();
     }
@@ -86,6 +115,13 @@ public class DLedgerEntryCoder {
         return pos;
     }
 
+    /**
+     * 日志条目索引缓冲区
+     * @param byteBuffer 缓冲区
+     * @param index 索引
+     * @param term 投票轮次
+     * @param magic 魔数
+     */
     public static void setIndexTerm(ByteBuffer byteBuffer, long index, long term, int magic) {
         byteBuffer.mark();
         byteBuffer.putInt(magic);

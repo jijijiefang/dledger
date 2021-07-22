@@ -34,6 +34,9 @@ import java.security.PrivilegedAction;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * 默认的文件内存映射
+ */
 public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     public static final int OS_PAGE_SIZE = 1024 * 4;
     protected static Logger logger = LoggerFactory.getLogger(DefaultMmapFile.class);
@@ -192,6 +195,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     }
 
     /**
+     * 立即将缓存中的数据刷新到磁盘。
      * @return The current flushed position
      */
     @Override

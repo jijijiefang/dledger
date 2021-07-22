@@ -57,6 +57,11 @@ public abstract class DLedgerStore {
      */
     public abstract long getCommittedIndex();
 
+    /**
+     * 更新已提交日志索引
+     * @param term 选举轮次
+     * @param committedIndex 已提交日志索引
+     */
     public void updateCommittedIndex(long term, long committedIndex) {
 
     }
@@ -88,18 +93,34 @@ public abstract class DLedgerStore {
         }
     }
 
+    /**
+     * 刷写
+     */
     public void flush() {
 
     }
 
+    /**
+     * 删除日志
+     * @param entry 日志条目
+     * @param leaderTerm 选举轮次
+     * @param leaderId Leader ID
+     * @return long
+     */
     public long truncate(DLedgerEntry entry, long leaderTerm, String leaderId) {
         return -1;
     }
 
+    /**
+     * 启动
+     */
     public void startup() {
 
     }
 
+    /**
+     * 停止
+     */
     public void shutdown() {
 
     }
